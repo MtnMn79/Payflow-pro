@@ -352,7 +352,7 @@ function uc_payflowpro_settings_form() {
     '#title' => t('Recurring Settings'),
     '#description' => t('Settings specific to recurring profiles.'),
     '#collapsible' => true,
-    '#collapsied' => true,
+    '#collapsed' => true,
   );
   $form['payflowpro_settings']['recurring']['uc_payflowpro_enable_recurring'] = array(
     '#type' => 'checkbox',
@@ -935,7 +935,7 @@ function _uc_payflowpro_submit_xml($xml, $mode = null) {
   else {
     $xml_response = @simplexml_load_string(utf8_encode($curl_response));
     // Check for bad string load.
-    if($xml_response == null) {
+    if(!isset($xml_response)) {
       return FALSE;
     }
     
