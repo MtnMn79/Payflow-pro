@@ -877,8 +877,9 @@ function _uc_payflowpro_submit_xml($xml, $mode = null) {
   // Info
   $certpath = variable_get('uc_payflowpro_cert_path', '');    
   
-  $servers['test'] = 'https://pilot-payflowpro.verisign.com/transaction:443/';
-  $servers['live'] = 'https://payflowpro.verisign.com/transaction:443/';
+  $servers['test'] = 'https://pilot-payflowpro.paypal.com:443';
+  $servers['live'] = 'https://payflowpro.paypal.com:443';
+  
   if($mode == null) {
     $url = $servers[variable_get('uc_payflowpro_mode', 'test')];
   }
@@ -909,18 +910,24 @@ function _uc_payflowpro_submit_xml($xml, $mode = null) {
   curl_setopt($ch, CURLOPT_POST, TRUE);
   curl_setopt($ch, CURLOPT_POSTFIELDS, $xml);
   curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
-  @curl_setopt($ch, CURLOPT_CAPATH, $certpath);
-  curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, FALSE); // Somtimes commenting out this line helps
-  curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, FALSE);
+  curl_setopt($ch, CURLOPT_CAINFO, $certpath);
+  
+  //WARNING: Uncommenting below this would prevent curl from detecting a 'man in the middle' attack
+  //curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, FALSE);
+  //curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, FALSE);
+  
   curl_setopt($ch, CURLOPT_FORBID_REUSE, TRUE);
   curl_setopt($ch, CURLOPT_TIMEOUT, 10);
   curl_setopt($ch, CURLOPT_FOLLOWLOCATION, FALSE);
+  
   $curl_response = curl_exec($ch);
+  
   if (!$curl_response) {
     watchdog('uc_payflowpro', 'Connecting to PayFlow server failed: ' . curl_error($ch), WATCHDOG_ERROR);
   }
   
   curl_close($ch);
+  
   if ($curl_response == '') {
     $response = FALSE;
   }
