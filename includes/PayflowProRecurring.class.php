@@ -382,7 +382,7 @@ class PayflowProRecurring {
   public function getTerm() {
     return $this->profile_term;  
   }
-  // TODO: Create new only
+
   public function setTerm($term) {
     $this->isCreateNew();
     $this->profile_term = $term;
@@ -807,5 +807,3 @@ function _my_submit($xml_request, $mode = 'test') {
     }
     return $response;
   }
-
-?>
