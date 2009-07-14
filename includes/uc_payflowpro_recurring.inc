@@ -798,9 +798,15 @@ function uc_payflowpro_user_panel() {
 function uc_payflowpro_cpanel_view_profile($pid) {
   global $user;
   $mode = substr($pid,0,2) == 'RT' ? 'test' : 'live';
-  $check = db_num_rows(db_query("SELECT pfp_pid, pfp_profile_id, pfp_uid, pfp_origid, pfp_profile_id FROM {uc_payflowpro_recurring_profiles} WHERE pfp_uid = %d", $user->uid));
+
+  $pidWhereClause = ''; // If no PID is provided, check for any results before showing the panel.
+  if ($pid != '') {
+    // PID provided, check perms specifically on that profile.
+    $pidWhereClause = " AND pfp_profile_id='%s'";
+  }
+  $check = db_result(db_query("SELECT count(*) FROM {uc_payflowpro_recurring_profiles} WHERE pfp_uid = '%d' $pidWhereClause", $user->uid, $pid));
   if($check < 1 && !user_access('administer store')) {
-    return t('You are not authorized to view this information.');
+    return drupal_access_denied();
   }
 
   if(arg(0) == 'admin') {
@@ -816,10 +822,6 @@ function uc_payflowpro_cpanel_view_profile($pid) {
     $page .= '<h2><font color="red">' . t('THIS IS A TEST PROFILE. TRANSACTION WILL BE RUN IN TEST MODE') . '</font></h2>';
     drupal_set_message(t('THIS IS A TEST PROFILE. TRANSACTION WILL BE RUN IN TEST MODE'), 'error');
   }
-
-  #$response = PayflowProClient::submitTransaction(trim(_text_xml()));
-  //$response = _payflowpro_send_transaction(trim(_test_xml(1)));
-  //$page .= '<pre>' . print_r($response,1) . '</pre>';
 
   $profile = new PayflowProRecurring($pid, _uc_payflowpro_get_auth());
   $profile->setMode($mode);
