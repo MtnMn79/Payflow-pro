@@ -257,7 +257,7 @@ function uc_payflowpro_charge($order_id, $amount, $data) {
     );
   }
   if($check_result_code != 0) {
-    watchdog('payflowpro', t('Credit card processing error for !amount with error code !return_code.', array('!amount' => uc_currency_format($amount), '!return_code' => $txn_result_code)));
+    watchdog('uc_payflowpro', t('Error !return_code: !message for !amount.', array('!message' => (string)$response->Message, '!return_code' => $txn_result_code, '!amount' => uc_currency_format($amount) )));
   }
   uc_order_comment_save($order_id, $user->uid, $message, 'admin');
   if($result['success'] == true) {
@@ -1371,7 +1371,7 @@ function _uc_payflowpro_recurring_process_recurring() {
 
     // Loop through each payment and record an order for each payment
     // made for the recurring product in the order.
-    watchdog('cron', "Updating " . count($profile->getPaymentHistory()) . " payments.\n");
+    watchdog('payflow_cron', "Updating " . count($profile->getPaymentHistory()) . " payments.\n");
     foreach($profile->getPaymentHistory() as $payment) {
       if(db_num_rows(db_query("SELECT 1 FROM {uc_payflowpro_recurring_payments} WHERE pnref = '%s'", $payment['PNRef'])) == 0) {
         // Create the order
@@ -1382,7 +1382,7 @@ function _uc_payflowpro_recurring_process_recurring() {
         $new_order->order_id = null; // For saftey
         $shell_order = uc_order_new($row->uid);
         if($new_order->order_total == 0.0) {
-          #watchdog('cron', "Found empty order {$row->order_id}. Skipping.\n");
+          #watchdog('payflow_cron', "Found empty order {$row->order_id}. Skipping.\n");
           continue 2;
         }
 
@@ -1391,11 +1391,11 @@ function _uc_payflowpro_recurring_process_recurring() {
         // Seve the order
         $try = uc_order_save($new_order);
         if($try === FALSE || uc_order_load($new_order->order_id) == false) {
-          watchdog('cron', "UNABLE TO SAVE ORDER $new_order->order_id\n", WATCHDOG_CRITICAL);
+          watchdog('payflow_cron', "UNABLE TO SAVE ORDER $new_order->order_id\n", WATCHDOG_CRITICAL);
           exit();
         }
         else {
-          watchdog('cron', "Created order $new_order->order_id");
+          watchdog('payflow_cron', "Created order $new_order->order_id");
         }
 
         // Add a payment to the order
@@ -1413,16 +1413,16 @@ function _uc_payflowpro_recurring_process_recurring() {
                  VALUES(%d, %d, %d, '%s', %d, '%s', '%s', '%s')",
                  $new_order->order_id, $row->order_id, $payment['PaymentNum'], $payment['PNRef'], strtotime($payment['TransTime']), $payment['TransState'], $data['Amount'], serialize($data));
         // Record a balancing payment for the ubercart system
-        watchdog('cron', "Adding payment to balance then new order.\n");
+        watchdog('payflow_cron', "Adding payment to balance then new order.\n");
         _uc_payflowpro_cron_payment_entry($new_order->order_id, 'payment_payflowpro', $payment['Amount'], $new_order->uid, serialize(array()), "Balancing payment for automatic transaction payment.", time());
-        watchdog('cron', "Payment added.\n");
+        watchdog('payflow_cron', "Payment added.\n");
         if(!$try || true) {
           uc_order_delete($new_order->order_id);
         }
-        watchdog('cron', "Payment " . $payment['PaymentNum'] . " complete.\n");
+        watchdog('payflow_cron', "Payment " . $payment['PaymentNum'] . " complete.\n");
       }
       else {
-        watchdog('cron',"Payment " . $payment['PaymentNum'] . " located in system. Ref: " . $payment['PNRef'] . "\n");
+        watchdog('payflow_cron',"Payment " . $payment['PaymentNum'] . " located in system. Ref: " . $payment['PNRef'] . "\n");
       }
     }
     // Always update the next payment date
