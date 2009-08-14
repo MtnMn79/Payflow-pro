@@ -666,7 +666,7 @@ class PayflowProClient {
 
     }
 
-    $request_id = sha1($xml_request . time());
+    $request_id = md5($xml_request . time());
     $user_agent = 'Mozilla/4.0 (compatible; MSIE 5.01; Windows NT 5.0)';
 
     $headers[] = "Content-Type: text/xml"; // either text/namevalue or text/xml
@@ -793,7 +793,7 @@ function _my_submit($xml_request, $mode = 'test') {
 
     }
 
-    $request_id = sha1($xml_request . time());
+    $request_id = md5($xml_request . time());
     $user_agent = 'Mozilla/4.0 (compatible; MSIE 5.01; Windows NT 5.0)';
 
     $headers[] = "Content-Type: text/xml"; // either text/namevalue or text/xml
