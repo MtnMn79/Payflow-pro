@@ -108,7 +108,8 @@ function uc_payflowpro_menu($may_cache) {
   );
 
 
-  if(arg(0) == 'user') {
+  // Recurring must be enabled to see the panel.  TODO: better permission to check, see D6.
+  if(arg(0) == 'user' && variable_get('uc_payflowpro_enable_recurring', 0)) {
     $items[] = array(
       'path' => 'user/' . arg(1) . '/pfp_cpanel',
       'title'=> t('Account Panel'),
