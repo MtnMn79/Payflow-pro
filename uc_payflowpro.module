@@ -4,7 +4,7 @@
 /**
  * @file
  * A module used for PayPal's PayFlow Pro gateway.
- * 
+ *
  * Developed by David Strauss (http://fourkitchens.com/ | david@fourkitchens.com)
  * and Marshal Newrock (https://idealso.com/ | marshal@idealso.com)
  *
@@ -12,16 +12,15 @@
 define('UC_PFP_OSTYPE_WINDOWS', 1);
 define('UC_PFP_OSTYPE_LINUX', 2);
 
+// Must always include files that contain hooks.  TODO: Utilize dynamic loading and module_load_include
+require_once('uc_payflowpro.ca.inc');
+require_once('includes/payflowpro_utils.inc');
+require_once('includes/PayflowProRecurring.class.php');
+require_once('includes/uc_payflowpro_recurring.inc');
+
 /*******************************************************************************
  * Hook Functions (Drupal)
  ******************************************************************************/
-
-/**
- * Implementation of hook_init()
- */
-function uc_payflowpro_init() {
-  _uc_payflowpro_include_init();
-}
 
 /**
  * Implementation of hook_menu()
@@ -31,83 +30,86 @@ function uc_payflowpro_menu() {
   // Callback functions for Express Checkout
   $items['cart/echeckout/selected'] = array(
     'title' => 'Review order',
-    'callback' => 'uc_payflowpro_ec_review_redirect',
-    'access' => user_access('access content'),
+    'page callback' => 'uc_payflowpro_ec_review_redirect',
+    'access arguments' => array('access content'),
     'type' => MENU_CALLBACK,
   );
   $items['cart/echeckout/review'] = array(
     'title' => 'Review payment',
-    'callback' => 'uc_payflowpro_ec_review',
-    'access' => user_access('access content'),
+    'page callback' => 'uc_payflowpro_ec_review',
+    'access arguments' => array('access content'),
     'type' => MENU_CALLBACK,
   );
   $items['cart/echeckout/submit'] = array(
     'title' => 'Submit order',
-    'callback' => 'uc_payflowpro_ec_submit',
-    'access' => user_access('access content'),
+    'page callback' => 'uc_payflowpro_ec_submit',
+    'access arguments' => array('access content'),
     'type' => MENU_CALLBACK,
   );
   $items['cart/echeckout/complete'] = array(
     'title' => 'Order complete',
-    'callback' => 'uc_payflowpro_ec_complete',
-    'access' => user_access('access content'),
+    'page callback' => 'uc_payflowpro_ec_complete',
+    'access arguments' => array('access content'),
     'type' => MENU_CALLBACK,
   );
   $items['cart/echeckout/cancel'] = array(
     'title' => 'PayPal payment cancelled',
-    'callback' => 'uc_payflowpro_ec_cancel',
-    'access' => user_access('access content'),
+    'page callback' => 'uc_payflowpro_ec_cancel',
+    'access arguments' => array('access content'),
     'type' => MENU_CALLBACK,
   );
-  
+
   // Recurring Billing administration
   $items['admin/store/settings/uc_recurring'] = array(
     'title' => 'Payflow Pro Recurring Settings',
-    'callback' => 'uc_payflowpro_recurring_settings',
-    'access' => user_access('administer content'),
+    'page callback' => 'uc_payflowpro_recurring_settings',
+    'access arguments' => array('administer products'),
     'description' => 'Payflow Pro recurring billing settings.',
+    'type' => MENU_NORMAL_ITEM,
   );
   $items['admin/store/settings/uc_recurring/overview'] = array(
     'title' => 'Overview',
-    'callback' => 'uc_payflowpro_recurring_settings',
-    'access' => user_access('administer content'),
+    'page callback' => 'uc_payflowpro_recurring_settings',
+    'access arguments' => array('administer products'),
     'type' => MENU_DEFAULT_LOCAL_TASK,
   );
   $items['admin/store/settings/uc_recurring/schedules'] = array(
     'title' => 'Schedules',
-    'callback' => 'uc_payflowpro_recurring_schedules',
-    'access' => user_access('administer content'),
+    'page callback' => 'uc_payflowpro_recurring_schedules',
+    'access arguments' => array('administer products'),
     'type' => MENU_LOCAL_TASK,
   );
   $items['admin/store/settings/uc_recurring/products'] = array(
     'title' => 'Products',
-    'callback' => 'uc_payflowpro_recurring_products',
-    'access' => user_access('administer content'),
+    'page callback' => 'uc_payflowpro_recurring_products',
+    'access arguments' => array('administer products'),
     'type' => MENU_LOCAL_TASK,
   );
   $items['admin/store/settings/uc_recurring/administer'] = array(
     'title' => 'Profiles',
-    'callback' => 'uc_payflowpro_user_panel',
-    'access' => user_access('administer content'),
+    'page callback' => 'uc_payflowpro_user_panel',
+    'access arguments' => array('administer products'),
     'type' => MENU_LOCAL_TASK,
   );
-  
+
   $items['admin/settings/uc_payflowpro_debug'] = array(
     'title' => 'PFP Debug',
-    'callback' => 'uc_payflowpro_debug',
-    'access' => user_access('administer content'),
+    'page callback' => 'uc_payflowpro_debug',
+    'access arguments' => array('administer products'),
     'type' => MENU_CALLBACK,
   );
-  
-  if (arg(0) == 'user') {
+
+  // If recurring transactions are enabled and you can view your own orders,
+  // allow you to see the recurring profiles tab on the user account page.
+  if( variable_get('uc_payflowpro_enable_recurring', 0) ) {
     $items['user/%/pfp_cpanel'] = array(
-      'title' => 'Account Panel',
-      'callback' => 'uc_payflowpro_user_panel',
+      'title' => 'Recurring Payments',
+      'page callback' => 'uc_payflowpro_user_panel',
       'type' => MENU_LOCAL_TASK,
-      'access' => user_access('access content'),
+      'access arguments' => array('view own orders'),
     );
   }
-  
+
   return $items;
 }
 
@@ -173,7 +175,7 @@ function uc_payflowpro_payment_method() {
  * Implementation of hook_payment_gateway()
  */
 function uc_payflowpro_payment_gateway() {
-  
+
   $gateways[] = array(
     'id' => 'payflowpro',
     'title' => t('PayPal PayFlow Pro'),
@@ -185,28 +187,18 @@ function uc_payflowpro_payment_gateway() {
   return $gateways;
 }
 
-/********************
- * 
- */
-
 function uc_payflowpro_charge($order_id, $amount, $data) {
-  
-  // DEBUG
-  $order = uc_order_load($order_id);
-
+  // Check that all required functions exist
   if (!_uc_payflowpro_check_requirements()) {
     return array('success' => FALSE);
   }
 
-  global $user;
+  global $user, $response;
+  $order = uc_order_load($order_id);
 
   $request = _uc_payflowpro_cc_sale_xml($order_id, $amount, $data);
   $response = _uc_payflowpro_submit_xml($request);
-  // drupal_set_message('TEST0 ' . print_r($request, 1));
-  // drupal_set_message('TEST2 ' . print_r($response, 1));
-  
-  // TODO: Data goes here
-  
+
   if (!$response) {
     $message = t('Received blank response from the PayFlow Pro gateway.');
     $result = array(
@@ -217,14 +209,16 @@ function uc_payflowpro_charge($order_id, $amount, $data) {
     );
     return $result;
   }
-  
+
   $txn_result_code = $response->Result;
-  //drupal_set_message('TEST3 ' . print_r($txn_result_code,  1));
   $txn_message = $response->Message;
-  //drupal_set_message('TEST4 ' . print_r($txn_message,  1));
 
   if ((int)$txn_result_code != 0) {
-    $message = t('Credit card declined for !amount with error code !return_code.', array('!amount' => uc_currency_format($amount), '!return_code' => $txn_result_code));
+    $message = t('Credit card declined for !amount with error code !return_code (!message).', array(
+      '!amount' => uc_currency_format($amount),
+      '!return_code' => $txn_result_code,
+      '!message' => $txn_message,
+    ));
     $data = array();
     $data['pnref'] = (string)$response->PNRef;
     $data['authcode'] = (string)$response->AuthCode;
@@ -240,7 +234,10 @@ function uc_payflowpro_charge($order_id, $amount, $data) {
   else {
     $x_approval_code = $response->AuthCode;
     $pnref = $response->PNRef;
-    $message = t('Credit card payment processed successfully with approval code !code and pnref !pnref.', array('!code' => $x_approval_code, '!pnref' => $pnref));
+    $message = t('Credit card payment processed successfully with approval code !code and pnref !pnref.', array(
+      '!code' => $x_approval_code,
+      '!pnref' => $pnref,
+    ));
     $data = array();
     $data['pnref'] = (string)$response->PNRef;
     $data['authcode'] = (string)$response->AuthCode;
@@ -252,10 +249,14 @@ function uc_payflowpro_charge($order_id, $amount, $data) {
       'uid' => $user->uid,
       'data' => $data,
     );
+
+    if(variable_get('uc_payflowpro_enable_recurring', FALSE)) {
+      // The recurring fee needs to be created before ubercart truncates the CC info down to the last 4 digits.
+      uc_payflowpro_recurring_charge_process($order);
+    }
   }
   uc_order_comment_save($order_id, $user->uid, $message, 'admin');
-  
-  uc_payflowpro_recurring_charge_process($order, $result);
+
   return $result;
 }
 
@@ -264,7 +265,7 @@ function uc_payflowpro_charge($order_id, $amount, $data) {
  * hook_order
  */
 function uc_payflowpro_order($op, &$arg1, $arg2) {
-  
+
   switch ($op) {
     case 'update':
       if ($arg1->order_status == 'in_checkout' && $arg2 == 'pending') {
@@ -278,7 +279,7 @@ function uc_payflowpro_order($op, &$arg1, $arg2) {
   }
   return;
 }
- 
+
 /*******************************************************************************
  * Callback Functions, Forms, and Tables
  ******************************************************************************/
@@ -290,8 +291,9 @@ function uc_payflowpro_settings_form() {
   $form['payflowpro_settings'] = array(
     '#type' => 'fieldset',
     '#title' => t('PayFlow Pro settings'),
+    '#element_validate' => array('uc_payflow_pro_pfp_gateway_validate'),
   );
-  
+
   $form['payflowpro_settings']['uc_payflowpro_mode'] = array(
     '#type' => 'radios',
     '#title' => t('Mode'),
@@ -314,7 +316,7 @@ function uc_payflowpro_settings_form() {
   $form['payflowpro_settings']['uc_payflowpro_cert_path'] = array(
     '#type' => 'textfield',
     '#title' => t('Certificate path'),
-    '#description' => t('This is the path to your certificates that you 
+    '#description' => t('This is the path to your certificates that you
                          downloaded from the PayFlow Pro site.'),
     '#default_value' => variable_get('uc_payflowpro_cert_path', drupal_get_path('module', 'uc_payflowpro') . '/cacert/cacert.pem'),
   );
@@ -327,10 +329,16 @@ function uc_payflowpro_settings_form() {
   );
   $form['payflowpro_settings']['recurring']['uc_payflowpro_enable_recurring'] = array(
     '#type' => 'checkbox',
-    '#title' => t('Enabled recurring on products'),
+    '#title' => t('Enable recurring products'),
     '#default_value' => variable_get('uc_payflowpro_enable_recurring', FALSE),
     '#description' => t('Checking this box will enabled recurring profiles on
                         products that have an expiration.'),
+  );
+  $form['payflowpro_settings']['recurring']['uc_payflowpro_recurring_create_order'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Successful recurring payments should create a duplicate order'),
+    '#default_value' => variable_get('uc_payflowpro_recurring_create_order', FALSE),
+    '#description' => t('If this box is unchecked, the original order will be updated instead.'),
   );
   $form['payflowpro_settings']['recurring']['uc_payflowpro_recurring_site_key'] = array(
     '#type' => 'textfield',
@@ -345,12 +353,12 @@ function uc_payflowpro_settings_form() {
     '#title' => t('API Credentials'),
     '#description' => t('PayFlow Pro account information (test this at manager.paypal.com)'),
     '#collapsible' => TRUE,
-    '#collapsed' => TRUE,
+    '#collapsed' => FALSE, // TODO: Change this to TRUE once the core password field clearing bug is fixed.
   );
   $form['payflowpro_settings']['api']['uc_payflowpro_partner'] = array(
     '#type' => 'textfield',
     '#title' => t('Partner'),
-    '#default_value' => variable_get('uc_payflowpro_partner', 'Verisign'),
+    '#default_value' => variable_get('uc_payflowpro_partner', 'PayPal'),
     '#description' => t('The ID provided to you by the authorized PayPal Reseller who registered you for the Payflow Pro service.  If you purchased your account directly from PayPal, use PayPal.  Otherwise, it is typically Verisign.  This is case sensitive.'),
   );
   // PayFlow XMLPay Guide refers to this as vendor instead of merchant
@@ -364,13 +372,13 @@ function uc_payflowpro_settings_form() {
     '#type' => 'textfield',
     '#title' => t('User'),
     '#default_value' => variable_get('uc_payflowpro_user', ''),
-    '#description' => t('The user name for the PayFlow service (may be the same as the vendor name).'),
+    '#description' => t('The user name for the PayFlow service (this is often the same as the Vendor name).'),
   );
   $form['payflowpro_settings']['api']['uc_payflowpro_password'] = array(
     '#type' => 'password',
     '#title' => t('Password'),
     '#default_value' => variable_get('uc_payflowpro_password', ''),
-    '#description' => t('PayFlow password'),
+    '#description' => t('PayFlow password.  WARNING: Until a core bug #486544 is fixed, you will need to re-enter your password if you change any settings.'),
   );
 
 
@@ -410,6 +418,28 @@ function uc_payflowpro_settings_form() {
   return $form;
 }
 
+function uc_payflow_pro_pfp_gateway_validate($element, &$form_state) {
+  if (! $form_state['values']['uc_pg_payflowpro_enabled']) {
+    return; // Gateway not enabled, config options irrelevant.
+  }
+
+  if (!is_readable($form_state['values']['uc_payflowpro_cert_path'])) {
+    form_set_error('uc_payflow_pro_pfp_account_validate_path', t('Certificate path invalid. Please be sure the path is correct and the file is readable.'));
+  }
+
+  // API Creds section.  Slightly different messages depending on what is missing to provide better feedback.
+  if (empty($form_state['values']['uc_payflowpro_partner']) || empty($form_state['values']['uc_payflowpro_vendor'])) {
+    form_set_error('uc_payflow_pro_pfp_account_validate_req', t('Payflow Pro Partner and Vendor are required fields.'));
+  }
+  if (empty($form_state['values']['uc_payflowpro_user'])) {
+    // The web service requires this field, but manager.paypal.com does not.  Make the difference fairly transparent to the end user.
+    $form_state['values']['uc_payflowpro_user'] = $form_state['values']['uc_payflowpro_vendor'];
+  }
+  if (empty($form_state['values']['uc_payflowpro_password'])) {
+    form_set_error('uc_payflow_pro_pfp_account_validate_pass', t('Payflow Pro password is required.'));
+  }
+}
+
 /*******************************************************************************
  * Express Checkout Functions
  ******************************************************************************/
@@ -435,7 +465,7 @@ function uc_payflowpro_ec_review_redirect() {
     drupal_set_message(t('An error has occurred in your PayPal payment. Please review your cart and try again.'));
     drupal_goto('cart');
   }
-  
+
   $request = _uc_payflowpro_get_ec_xml($_SESSION['TOKEN']);
   $response = _uc_payflowpro_submit_xml($request);
 
@@ -459,7 +489,7 @@ function uc_payflowpro_ec_review() {
     $response = _uc_payflowpro_submit_xml($request);
 
     $_SESSION['PAYERID'] = $response->PayPalResult->PayerID;
-    
+
     // get variables to populate form
     $billto_name = check_plain(trim($response->PayPalResult->Name));
     $name_split = strrpos($billto_name, ' ');
@@ -491,7 +521,7 @@ function uc_payflowpro_ec_review() {
 
     $zone_id = db_result(db_query("SELECT zone_id FROM {uc_zones} WHERE zone_code = '%s'", check_plain($response->PayPalResult->ShipTo->Address->State)));
     $country_id = db_result(db_query("SELECT country_id FROM {uc_countries} WHERE country_iso_code_2 = '%s'", check_plain($response->PayPalResult->ShipTo->Address->Country)));
-    
+
     $order->delivery_first_name = $shipto_firstname;
     $order->delivery_last_name = $shipto_lastname;
     $order->delivery_street1 = check_plain($response->PayPalResult->ShipTo->Street);
@@ -550,7 +580,7 @@ function uc_payflowpro_ec_checkout($form_id, $form_values) {
   }
 
   global $user;
-  
+
   $order_id = intval($_SESSION['cart_order']);
 
   $order = uc_order_load($order_id);
@@ -577,7 +607,7 @@ function uc_payflowpro_ec_checkout($form_id, $form_values) {
   }
 
   $_SESSION['TOKEN'] = $response->PayPalResult->Token;
-  
+
   header('Location: '. _uc_payflowpro_ec_url());
   exit();
 }
@@ -782,8 +812,8 @@ function uc_payflowpro_ec_review_form_validate($form, &$form_state) {
 }
 
 function uc_payflowpro_ec_review_form_submit($form, &$form_state) {
-  $order = uc_order_load($_SESSION['cart_order']); 
-  
+  $order = uc_order_load($_SESSION['cart_order']);
+
   if (module_exists('uc_quote') && variable_get('uc_payflowpro_ec_review_shipping', TRUE)) {
     $order->quote['method'] = $form_state['values']['panes']['quotes']['pane']['quote_method'];
     $order->quote['accessorials'] = isset($_POST['quote-option']) ? strval($_POST['quote-option']) : 0;
@@ -820,7 +850,7 @@ function uc_payflowpro_ec_review_form_submit($form, &$form_state) {
 
 function uc_payflowpro_ec_submit_form_submit($form, &$form_state) {
   $order = uc_order_load($_SESSION['cart_order']);
-  
+
   $request = _uc_payflowpro_do_ec_xml($order);
   $response = _uc_payflowpro_submit_xml($request);
 
@@ -836,16 +866,16 @@ function uc_payflowpro_ec_submit_form_submit($form, &$form_state) {
  ******************************************************************************/
 
 // Submit request to PayFlow
-function _uc_payflowpro_submit_xml($xml, $mode = null) {
+function _uc_payflowpro_submit_xml($xml, $mode = NULL) {
   // DEBUG: Return false to not submit
   $xml = trim($xml);
 
   // Info
   $certpath = variable_get('uc_payflowpro_cert_path', '');
-  
+
   $servers['test'] = 'https://pilot-payflowpro.paypal.com:443';
   $servers['live'] = 'https://payflowpro.paypal.com:443';
-  
+
   if($mode == null) {
     $url = $servers[variable_get('uc_payflowpro_mode', 'test')];
   }
@@ -853,7 +883,7 @@ function _uc_payflowpro_submit_xml($xml, $mode = null) {
     $url = $servers[$mode];
   }
 
-  $request_id = sha1($xml_request . time());
+  $request_id = md5($xml . time());
   $user_agent = 'Mozilla/4.0 (compatible; MSIE 5.01; Windows NT 5.0)';
 
   $headers[] = "Content-Type: text/xml"; // either text/namevalue or text/xml
@@ -865,11 +895,11 @@ function _uc_payflowpro_submit_xml($xml, $mode = null) {
   $headers[] = "X-VPS-VIT-Client-Architecture: x86";  // For your info
   $headers[] = "X-VPS-VIT-Client-Certification-Id: 33baf5893fc2123d8b191d2d011b7fdc"; // This header requirement will be removed
   $headers[] = "X-VPS-VIT-Integration-Product: Ubercart";  // For your info, would populate with application name
-  $headers[] = "X-VPS-VIT-Integration-Version: 1.0"; // Application version
+  $headers[] = "X-VPS-VIT-Integration-Version: 2.0"; // Application version
   $headers[] = "X-VPS-Request-ID: " . $request_id;
 
   $ch = curl_init();
-  
+
   /*curl_setopt($ch, CURLOPT_URL, $url);
   curl_setopt($ch, CURLOPT_VERBOSE, 0);
   curl_setopt($ch, CURLOPT_POST, 1);
@@ -878,7 +908,7 @@ function _uc_payflowpro_submit_xml($xml, $mode = null) {
   curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0);
   curl_setopt($ch, CURLOPT_NOPROGRESS, 1);
   curl_setopt($ch, CURLOPT_FOLLOWLOCATION,0);*/
-  
+
   curl_setopt($ch, CURLOPT_URL, $url);
   curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
   curl_setopt($ch, CURLOPT_USERAGENT, $user_agent);
@@ -888,7 +918,7 @@ function _uc_payflowpro_submit_xml($xml, $mode = null) {
   curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
   //@curl_setopt($ch, CURLOPT_CAPATH, $certpath);
   curl_setopt($ch, CURLOPT_CAINFO, $certpath);
-  
+
   //WARNING: Uncommenting below this would prevent curl from detecting a 'man in the middle' attack
   //curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, FALSE);
   //curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, FALSE);
@@ -897,28 +927,33 @@ function _uc_payflowpro_submit_xml($xml, $mode = null) {
   curl_setopt($ch, CURLOPT_FORBID_REUSE, TRUE);
   curl_setopt($ch, CURLOPT_TIMEOUT, 10);
   curl_setopt($ch, CURLOPT_FOLLOWLOCATION, FALSE);
-  
+
   $curl_response = curl_exec($ch);
-  
+
   if (!$curl_response) {
-    watchdog('uc_payflowpro', 'Connecting to PayFlow server failed: ' . curl_error($ch), WATCHDOG_ERROR);
+    watchdog('uc_payflowpro', 'Connecting to PayFlow server failed: %error', array('%error' => curl_error($ch)), WATCHDOG_ERROR);
   }
 
   curl_close($ch);
-  
+
   if ($curl_response == '') {
     $response = FALSE;
   }
   else {
     $xml_response = @simplexml_load_string($curl_response);
-    if(isset($xml_response->ResponseData->RecurringProfileResults)) {
+    if ($xml_response === FALSE) {
+      // Response wasn't valid XML, some errors come back as strings.
+      watchdog('uc_payflowpro', 'PayFlow server returned a non-XML error: %error', array('%error' => $curl_response), WATCHDOG_ERROR);
+      $response = FALSE;
+    }
+    elseif(isset($xml_response->ResponseData->RecurringProfileResults)) {
       $response = $xml_response->ResponseData->RecurringProfileResults;
     }
     else {
       $response = $xml_response->ResponseData->TransactionResults->TransactionResult;
     }
   }
-  
+
   return $response;
 }
 
@@ -928,8 +963,8 @@ function _uc_payflowpro_wrap_xml($transaction) {
   $xml = '<?xml version="1.0" encoding="UTF-8"?>
 <XMLPayRequest Timeout="30" version = "2.0" xmlns="http://www.paypal.com/XMLPay">
   <RequestData>
-    <Vendor>' . variable_get('uc_payflowpro_vendor', '') . '</Vendor>
-    <Partner>' . variable_get('uc_payflowpro_partner', '') . '</Partner>
+    <Vendor>' . check_plain(variable_get('uc_payflowpro_vendor', '')) . '</Vendor>
+    <Partner>' . check_plain(variable_get('uc_payflowpro_partner', '')) . '</Partner>
     <Transactions>
       <Transaction>
 ' . $transaction . '
@@ -938,8 +973,8 @@ function _uc_payflowpro_wrap_xml($transaction) {
   </RequestData>
   <RequestAuth>
     <UserPass>
-      <User>' . variable_get('uc_payflowpro_user', '') . '</User>
-      <Password>' . variable_get('uc_payflowpro_password', '') . '</Password>
+      <User>' . check_plain(variable_get('uc_payflowpro_user', '')) . '</User>
+      <Password>' . check_plain(variable_get('uc_payflowpro_password', '')) . '</Password>
     </UserPass>
   </RequestAuth>
 </XMLPayRequest>';
@@ -956,17 +991,17 @@ function _uc_payflowpro_items_xml($order) {
   foreach ($order->products as $product) {
     $subtotal += $product->qty * $product->price;
     $xml .= '                <Item Number="' . ++$item_number . '">
-                  <SKU>' . $product->model . '</SKU>
-                  <UPC>' . $product->model . '</UPC>
-                  <Description>' . $product->title . '</Description>
-                  <Quantity>' . $product->qty . '</Quantity>
-                  <UnitPrice>' . $product->price . '</UnitPrice>
+                  <SKU>' . check_plain($product->model) . '</SKU>
+                  <UPC>' . check_plain($product->model) . '</UPC>
+                  <Description>' . check_plain($product->title) . '</Description>
+                  <Quantity>' . intval($product->qty) . '</Quantity>
+                  <UnitPrice>' . floatval($product->price) . '</UnitPrice>
                 </Item>
 ';
   }
   $xml .= '              </Items>
               <ItemAmt>' . uc_currency_format($subtotal, FALSE, FALSE, '.') . '</ItemAmt>';
-  
+
   return $xml;
 }
 
@@ -991,48 +1026,45 @@ function _uc_payflowpro_invoice_xml($order) {
 
   $tax = 0;
   if (module_exists('uc_taxes')) {
-    $taxes = uc_taxes_calculate($order);
-    if (is_array($taxes)) {
-      foreach ($taxes as $tax_item) {
-        $tax += $tax_item['amount'];
-      }
+    foreach (uc_taxes_calculate($order) as $tax_item) {
+      $tax += $tax_item->amount;
     }
   }
 
-  $xml = '            <Invoice> 
-              <InvNum>' . $order->order_id . '</InvNum>
-              <Comment>' . _uc_get_skus($order) . '</Comment>
+  $xml = '            <Invoice>
+              <InvNum>' . intval($order->order_id) . '</InvNum>
+              <Comment>' . check_plain(_uc_get_skus($order)) . '</Comment>
               <BillTo>
-                <Name>' . $order->billing_first_name . ' ' . $order->billing_last_name . '</Name>
-                <Phone>' . $order->billing_phone . '</Phone>
-                <EMail>' . $order->primary_email . '</EMail>
+                <Name>' . trim(check_plain($order->billing_first_name . ' ' . $order->billing_last_name)) . '</Name>
+                <Phone>' . check_plain($order->billing_phone) . '</Phone>
+                <EMail>' . check_plain($order->primary_email) . '</EMail>
                 <CustCode>' . $order->uid . '</CustCode>
                 <Address>
-                  <Street>' . $order->billing_street1 . '</Street>
-                  <City>' . $order->billing_city . '</City>
-                  <State>' . uc_get_zone_code($order->billing_zone) . '</State>
-                  <Zip>' . $order->billing_postal_code . '</Zip>
-                  <Country>' . $billing_country[0]['country_iso_code_2'] . '</Country>
+                  <Street>' .trim(check_plain($order->billing_street1 . ' ' . $order->billing_street2)) . '</Street>
+                  <City>' . check_plain($order->billing_city) . '</City>
+                  <State>' . check_plain(uc_get_zone_code($order->billing_zone)) . '</State>
+                  <Zip>' . check_plain($order->billing_postal_code) . '</Zip>
+                  <Country>' . check_plain($billing_country[0]['country_iso_code_2']) . '</Country>
                 </Address>
               </BillTo>
               <ShipTo>
-                <Name>' . $order->delivery_first_name . ' ' . $order->delivery_last_name . '</Name>
-                <Phone>' . $order->delivery_phone . '</Phone>
-                <EMail>' . $order->primary_email . '</EMail>
+                <Name>' . check_plain($order->delivery_first_name . ' ' . $order->delivery_last_name) . '</Name>
+                <Phone>' . check_plain($order->delivery_phone) . '</Phone>
+                <EMail>' . check_plain($order->primary_email) . '</EMail>
                 <Address>
-                  <Street>' . $order->delivery_street1 . '</Street>
-                  <City>' . $order->delivery_city . '</City>
-                  <State>' . uc_get_zone_code($order->delivery_zone) . '</State>
-                  <Zip>' . $order->delivery_postal_code . '</Zip>
-                  <Country>' . $delivery_country[0]['country_iso_code_2'] . '</Country>
+                  <Street>' .trim(check_plain($order->delivery_street1 . ' ' . $order->delivery_street2)) . '</Street>
+                  <City>' . check_plain($order->delivery_city) . '</City>
+                  <State>' . check_plain(uc_get_zone_code($order->delivery_zone)) . '</State>
+                  <Zip>' . check_plain($order->delivery_postal_code) . '</Zip>
+                  <Country>' . check_plain($delivery_country[0]['country_iso_code_2']) . '</Country>
                 </Address>
               </ShipTo>
 ' . _uc_payflowpro_items_xml($order) . '
               <ShippingAmt>' . uc_currency_format($shipping, FALSE, FALSE, '.') . '</ShippingAmt>
               <TaxAmt>' . uc_currency_format($tax, FALSE, FALSE, '.') . '</TaxAmt>
-              <TotalAmt>' . uc_currency_format($order->order_total, FALSE, FALSE, '.') . '</TotalAmt> 
+              <TotalAmt>' . uc_currency_format($order->order_total, FALSE, FALSE, '.') . '</TotalAmt>
             </Invoice>';
-  
+
   return $xml;
 }
 
@@ -1042,29 +1074,28 @@ function _uc_get_skus($order) {
     $skus[] = $product->model;
   }
   return "SKUS: " . implode('|', $skus);
-  
+
 }
 
 // Generate XML for credit card sale
 function _uc_payflowpro_cc_sale_xml($order_id, $amount, $data) {
   $order = uc_order_load($order_id);
 
-  //$payment_method = variable_get('uc_payflowpro_payment_method', '');
-  $payment_method = variable_get('uc_payflowpro_payment_action', '');
+   // Get payment action (Sale or Authorization)
+  $payment_action = variable_get('uc_payflowpro_payment_action', '');
 
   if (strlen($cc_exp_month) == 2) {
     $cc_exp = $cc_exp_year .  $cc_exp_month;
   }
 
-  $xml = '         <' . $payment_method . '>
+  $xml = '         <' . $payment_action . '>
           <PayData>
 ' . _uc_payflowpro_invoice_xml($order) . '
-            <Tender> 
-' . _uc_payflowpro_cc_info_xml($order_id) . 
-'
+            <Tender>
+' . _uc_payflowpro_cc_info_xml($order_id) . '
             </Tender>
           </PayData>
-        </' . $payment_method . '>';
+        </' . $payment_action . '>';
 
   return _uc_payflowpro_wrap_xml($xml);
 }
@@ -1078,13 +1109,14 @@ function _uc_payflowpro_cc_info_xml($order_id) {
   if (strlen($cc_exp_month) == 2) {
     $cc_exp = $cc_exp_year .  $cc_exp_month;
   }
-  
+
   $xml = '
-              <Card> 
-                <CardNum>' . $order->payment_details['cc_number'] . '</CardNum> 
-                <ExpDate>' . $cc_exp . '</ExpDate> 
-                <NameOnCard>' . $order->payment_details['cc_owner'] . '</NameOnCard>
-                <CVNum>' . $order->payment_details['cc_cvv'] . '</CVNum>
+              <Card>
+                <CardNum>' . check_plain($order->payment_details['cc_number']) . '</CardNum>
+                <ExpDate>' . check_plain($cc_exp) . '</ExpDate>
+                <ExtData Name="FIRSTNAME" Value="' . check_plain($order->billing_first_name) . '"></ExtData>
+                <ExtData Name="LASTNAME" Value="' . check_plain($order->billing_last_name) . '"></ExtData>
+                <CVNum>' . check_plain($order->payment_details['cc_cvv']) . '</CVNum>
               </Card>
         ';
   return $xml;
@@ -1092,22 +1124,23 @@ function _uc_payflowpro_cc_info_xml($order_id) {
 
 // Generate XML for SetExpressCheckout
 function _uc_payflowpro_set_ec_xml($order) {
-  $payment_method = variable_get('uc_payflowpro_payment_method', '');
+  // Get payment action (Sale or Authorization)
+  $payment_action = variable_get('uc_payflowpro_payment_action', '');
 
   $xml = '         <SetExpressCheckout>
-          <' . $payment_method . '>
+          <' . $payment_action . '>
             <PayData>
 ' . _uc_payflowpro_invoice_xml($order) . '
               <Tender>
                 <PayPal>
-                  <EMail>' . $order->primary_email . '</EMail>
+                  <EMail>' . check_plain($order->primary_email) . '</EMail>
                   <ReturnURL>' . url('cart/echeckout/selected', array('absolute' => TRUE)) . '</ReturnURL>
                   <CancelURL>' . url('uc_payflowpro/ec/cancel', array('absolute' => TRUE)) . '</CancelURL>
-                  <ReqConfirmShipping>' . variable_get('uc_payflowpro_ec_reqconfirmed_addr') . '</ReqConfirmShipping>
+                  <ReqConfirmShipping>' . check_plain(variable_get('uc_payflowpro_ec_reqconfirmed_addr', '')) . '</ReqConfirmShipping>
                 </PayPal>
               </Tender>
             </PayData>
-          </' . $payment_method . '>
+          </' . $payment_action . '>
         </SetExpressCheckout>';
 
   return _uc_payflowpro_wrap_xml($xml);
@@ -1115,18 +1148,19 @@ function _uc_payflowpro_set_ec_xml($order) {
 
 // Generate XML for GetExpressCheckout
 function _uc_payflowpro_get_ec_xml($token) {
-  $payment_method = variable_get('uc_payflowpro_payment_method', '');
+  // Get payment action (Sale or Authorization)
+  $payment_action = variable_get('uc_payflowpro_payment_action', '');
 
   $xml = '         <GetExpressCheckout>
-          <' . $payment_method . '>
+          <' . $payment_action . '>
             <PayData>
               <Tender>
                 <PayPal>
-                  <Token>' . $token . '</Token>
+                  <Token>' . check_plain($token) . '</Token>
                 </PayPal>
               </Tender>
             </PayData>
-          </' . $payment_method . '>
+          </' . $payment_action . '>
         </GetExpressCheckout>';
 
   return _uc_payflowpro_wrap_xml($xml);
@@ -1134,24 +1168,25 @@ function _uc_payflowpro_get_ec_xml($token) {
 
 // Generate XML for DoExpressCheckout
 function _uc_payflowpro_do_ec_xml($order) {
-  $payment_method = variable_get('uc_payflowpro_payment_method', '');
+  // Get payment action (Sale or Authorization)
+  $payment_action = variable_get('uc_payflowpro_payment_action', '');
 
   $xml = '         <DoExpressCheckout>
-          <' . $payment_method . '>
+          <' . $payment_action . '>
             <PayData>
 ' . _uc_payflowpro_invoice_xml($order) . '
               <Tender>
                 <PayPal>
-                  <Token>' . $_SESSION['TOKEN'] . ' </Token>
-                  <PayerID>' . $_SESSION['PAYERID'] . '</PayerID>
+                  <Token>' . check_plain($_SESSION['TOKEN']) . ' </Token>
+                  <PayerID>' . check_plain($_SESSION['PAYERID']) . '</PayerID>
                   <ButtonSource>Ubercart_ShoppingCart_EC_US</ButtonSource>
                 </PayPal>
               </Tender>
             </PayData>
-          </' . $payment_method . '>
+          </' . $payment_action . '>
           </DoExpressCheckout>';
 
-  return uc_payflowpro_wrap_xml($xml);
+  return _uc_payflowpro_wrap_xml($xml);
 }
 
 // Generate XML for Recurring profiles
@@ -1175,86 +1210,44 @@ function _uc_payflowpro_recurring_profile($order, $opt = array()) {
 
   $tax = 0;
   if (module_exists('uc_taxes')) {
-    $taxes = uc_taxes_calculate($order);
-    if (is_array($taxes)) {
-      foreach ($taxes as $tax_item) {
-        $tax += $tax_item['amount'];
-      }
+    foreach (uc_taxes_calculate($order) as $tax_item) {
+      $tax += $tax_item->amount;
     }
   }
 
-  $xml = '            <Invoice> 
-              <InvNum>' . $order->order_id . '</InvNum>
+  $xml = '            <Invoice>
+              <InvNum>' . intval($order->order_id) . '</InvNum>
               <BillTo>
-                <Name>' . $order->billing_first_name . ' ' . $order->billing_last_name . '</Name>
-                <Phone>' . $order->billing_phone . '</Phone>
-                <EMail>' . $order->primary_email . '</EMail>
-                <CustCode>' . $order->uid . '</CustCode>
+                <Name>' . trim(check_plain($order->billing_first_name . ' ' . $order->billing_last_name)) . '</Name>
+                <Phone>' . check_plain($order->billing_phone) . '</Phone>
+                <EMail>' . check_plain($order->primary_email) . '</EMail>
+                <CustCode>' . check_plain($order->uid) . '</CustCode>
                 <Address>
-                  <Street>' . $order->billing_street1 . '</Street>
-                  <City>' . $order->billing_city . '</City>
-                  <State>' . uc_get_zone_code($order->billing_zone) . '</State>
-                  <Zip>' . $order->billing_postal_code . '</Zip>
-                  <Country>' . $billing_country[0]['country_iso_code_2'] . '</Country>
+                  <Street>' .trim(check_plain($order->billing_street1 . ' ' . $order->billing_street2)) . '</Street>
+                  <City>' . check_plain($order->billing_city) . '</City>
+                  <State>' . check_plain(uc_get_zone_code($order->billing_zone)) . '</State>
+                  <Zip>' . check_plain($order->billing_postal_code) . '</Zip>
+                  <Country>' . check_plain($billing_country[0]['country_iso_code_2']) . '</Country>
                 </Address>
               </BillTo>
               <ShipTo>
-                <Name>' . $order->delivery_first_name . ' ' . $order->delivery_last_name . '</Name>
-                <Phone>' . $order->delivery_phone . '</Phone>
-                <EMail>' . $order->primary_email . '</EMail>
+                <Name>' . check_plain($order->delivery_first_name . ' ' . $order->delivery_last_name) . '</Name>
+                <Phone>' . check_plain($order->delivery_phone) . '</Phone>
+                <EMail>' . check_plain($order->primary_email) . '</EMail>
                 <Address>
-                  <Street>' . $order->delivery_street1 . '</Street>
-                  <City>' . $order->delivery_city . '</City>
-                  <State>' . uc_get_zone_code($order->delivery_zone) . '</State>
-                  <Zip>' . $order->delivery_postal_code . '</Zip>
-                  <Country>' . $delivery_country[0]['country_iso_code_2'] . '</Country>
+                  <Street>' .trim(check_plain($order->delivery_street1 . ' ' . $order->delivery_street2)) . '</Street>
+                  <City>' . check_plain($order->delivery_city) . '</City>
+                  <State>' . check_plain(uc_get_zone_code($order->delivery_zone)) . '</State>
+                  <Zip>' . check_plain($order->delivery_postal_code) . '</Zip>
+                  <Country>' . check_plain($delivery_country[0]['country_iso_code_2']) . '</Country>
                 </Address>
               </ShipTo>
 ' . _uc_payflowpro_items_xml($order) . '
               <ShippingAmt>' . uc_currency_format($shipping, FALSE, FALSE, '.') . '</ShippingAmt>
               <TaxAmt>' . uc_currency_format($tax, FALSE, FALSE, '.') . '</TaxAmt>
-              <TotalAmt>' . uc_currency_format($order->order_total, FALSE, FALSE, '.') . '</TotalAmt> 
+              <TotalAmt>' . uc_currency_format($order->order_total, FALSE, FALSE, '.') . '</TotalAmt>
             </Invoice>';
-            
-  $smlq = '
-          <RequestData>
-            <Vendor>vendor</Vendor>
-            <Partner>partner</Partner>
-            <RecurringProfiles>
-              <RecurringProfile Id="1">
-                <Add>
-                  <Tender>' .
-                    _uc_payflowpro_cc_info_xml($oder->order_id) . '
-                  </Tender>
-                  <RPData>
-                    <Name>' . $profile_name . '</Name>
-                    <TotalAmt>' . $recurring_amt . '</TotalAmt>
-                    <Start>' . $profile_start_date . '</Start>
-                    <Term>' . $profile_term . '</Term>
-                    <PayPeriod>' . $profile_period . '</PayPeriod>
-                    <EMail>' . $order->primary_email . '</EMail>
-                    <OptionalTrans>Sale</OptionalTrans>
-                    <OptionalTransAmt>12</OptionalTransAmt>
-                    <BillTo>
-                      <Address>
-                        <Street>123 4th street</Street>
-                        <City>San Jose</City>
-                        <State>CA</State>
-                        <Zip>95032</Zip>
-                      </Address>
-                    </BillTo>
-                  </RPData>
-                </Add>
-              </RecurringProfile>
-            </RecurringProfiles>
-          </RequestData>
-          <RequestAuth>
-            <UserPass>
-              <User>user</User>
-              <Password>password</Password>
-            </UserPass>
-          </RequestAuth>
-';
+
   return $xml;
 }
 
@@ -1265,99 +1258,95 @@ function _uc_payflowpro_recurring_profile($order, $opt = array()) {
  * Implementation of hook_cron
  */
 function uc_payflowpro_cron() {
-  // Init and include classes
-  _uc_payflowpro_include_init();
-  
-  // Update the items that where we need to find out their payment date.
-  _uc_payflowpro_recurring_sync_status();
-  // Now we need to process the items
-  _uc_payflowpro_recurring_process_recurring();
-  
-  return;
-}
-
-/**
- * Syncs the Recurring Profiles information with PFP. This does not
- * do any processing of the profiles.
- */
-function _uc_payflowpro_recurring_sync_status() {
-
+  // Sync every profile once per day.
+  // If the profile is canceled via manager.paypal.com it needs to be updated here.
   $rs = db_query("SELECT * FROM {uc_payflowpro_recurring_profiles} WHERE
-                 (next_payment_date IS NULL || next_payment_date = 0 || last_status_check = 0)
-                 AND (pfp_status = 'ACTIVE' || pfp_status = 0 || pfp_status IS NULL)");
+                 last_status_check IS NULL OR last_status_check < %d", time() - 86400);
   while($row = db_fetch_object($rs)) {
     $profile = new PayflowProRecurring($row->pfp_profile_id, _uc_payflowpro_get_auth());
     $profile->refresh();
 
     if($profile->getStatus() == 'ACTIVE') {
+      // If a payment occurred, the pnref needs to be updated in the database.
+      $payment = $profile->getLastPayment();
+      $newPNRef = $row->pfp_rpref;
+      if (!empty($payment['PNRef']) && $payment['Result'] === "0" ) {
+        $newPNRef = $payment['PNRef'];
+      }
+
+      // @see #770000: For debugging any unsuccessful recurring charges.
+      if (!empty($payment)) {
+        watchdog('payflow_cron', 'Last payment for @profile_id had ref code @PNRef, result @result, and last payment status @status',
+          array('@profile_id' => $profile->getProfileID(), '@PNRef' => $payment['PNRef'], '@result' => $payment['Result'], '@status' => $profile->getLastPaymentStatus()),
+          WATCHDOG_DEBUG
+        );
+      }
+
       $try = db_query("UPDATE {uc_payflowpro_recurring_profiles}
-               SET profile_status = '%s', next_payment_date = %d, last_status_check = %d 
+               SET profile_status = '%s', next_payment_date = %d, last_status_check = %d, payment_status = '%s', pfp_rpref = '%s'
                WHERE pfp_pid = %d",
-               $profile->getStatus(), $profile->getNextPaymentDate('unix'), time(), $row->pfp_pid);
+               $profile->getStatus(), $profile->getNextPaymentDate('unix'), time(), $profile->getLastPaymentStatus(), $newPNRef, $row->pfp_pid);
+
+      // If a payment was made and it was successful, need to do some order processing.
+      if($profile->getLastPaymentStatus() === 0 && $newPNRef != $row->pfp_rpref) {
+        // Prepare data for order comment or new order.
+        $order = uc_order_load($row->order_id);
+        $comment = "Logging recurring payment from Payflow Pro for profile " . $profile->getProfileID();
+        $data = array();
+        $last_payment = $profile->getLastPayment();
+        unset($last_payment['Amt']);
+        $data = $last_payment;
+        $data['pnref'] = $last_payment['PNREF'];
+        $data['payment_num'] = $last_payment['PaymentNum'];
+
+        // If box was checked, create a new order for this payment.
+        // This is not the recommended way to handle it, since it will create
+        // a lot of duplicate orders.  However, this might be best for some
+        // sites, particularly if they rely on an order state change.
+        if( variable_get('uc_payflowpro_recurring_create_order', 0) ) {
+          // Save a new blank order, to reserve an ID
+          $shell_order = uc_order_new($row->uid);
+          // Use the new, reserved ID with the old data
+          $order->order_id = $shell_order->order_id;
+          // Seve the full data to the new ID
+          uc_order_save($order);
+        }
+
+        // Add a payment to the order
+        uc_payment_enter($order->order_id, 'payflowpro', $data['Amount'], 0, NULL, $comment);
+
+        watchdog('payflow_cron', 'Recorded payment for profile @profile_id: order @order_id, next payment @next_payment_date, status @status', array(
+          '@profile_id' => $profile->getProfileID(),
+          '@order_id' => ((!empty($order->order_id)) ? $order->order_id : $row->order_id),
+          '@next_payment_date' => $profile->getNextPaymentDate('M.d.Y'),
+          '@status' => $profile->getLastPaymentStatus(),
+        ));
+
+        // For now, integration with uc_roles is direct.  After integration
+        // with uc_recurring is done, this should no longer be needed because
+        // uc_recurring will already take care of it. @see #525222
+        if (is_callable('uc_roles_action_order_renew')) {
+          uc_roles_action_order_renew($order, array());
+        }
+      }
     }
     else {
       $try = db_query("UPDATE {uc_payflowpro_recurring_profiles}
-               SET profile_status = '%s', next_payment_date = %d, last_status_check = %d 
+               SET profile_status = '%s', next_payment_date = %d, last_status_check = %d
                WHERE pfp_pid = %d", $profile->getStatus(),
                0, time(), $row->pfp_pid);
     }
-    if(!$try) {
-      watchdog('payflow_cron', 'Sync error while updating %profile_id',
-                                      array('%profile_id' => $profile->getProfileID()),
-               WATCHDOG_ERROR);
-    }
-    else {
-      watchdog('payflow_cron', 'Synced profile %profile_id: %next_payment_date, %status',
-                                    array('%profile_id' => $profile->getProfileID(),
-                                          '%next_payment_date' => $profile->getNextPaymentDate('M.d.Y'),
-                                          '%status' => $profile->getLastPaymentStatus())
-               );
-    }
-  }
-  return;
-}
 
-/**
- * This looks through the recurring table, and processes
- * the recurring items that need to be processed.
- */
-function _uc_payflowpro_recurring_process_recurring() {
-  // First lets grab the ones we need to process
-  
-  $rs = db_query("SELECT * FROM {uc_payflowpro_recurring_profiles}
-                 WHERE profile_status = 'ACTIVE' AND 
-                 next_payment_date != 0 AND next_payment_date IS NOT NULL AND 
-                 next_payment_date + 86400 < %d", time());
-  while($row = db_fetch_object($rs)) {
-    // Load up the profile
-    $profile = new PayflowProRecurring($row->pfp_profile_id, _uc_payflowpro_get_auth());
-    $profile->refresh();
-    
-    // Check the payment status
-    if($profile->getLastPaymentStatus() === 0) {
-      $new_order = uc_order_load($row->order_id);
-      $new_order->order_id = null; // For saftey
-      $shell_order = uc_order_new($row->uid);
-      // Set the original order id to the new one
-      $new_order->order_id = $shell_order->order_id;
-      // Seve the order
-      uc_order_save($new_order);
-      
-      // Add a payment to the order
-      $comment = "Logging payment from Payflow Pro for profile " . $profile->getProfileID();
-      $data = array();
-      $last_payment = $profile->getLastPayment();
-      unset($last_payment['Amt']);
-      $data = $last_payment;
-      $data['pnref'] = $last_payment['PNREF'];
-      $data['payment_num'] = $last_payment['PaymentNum'];
-      uc_payment_enter($new_order->order_id, 'payflowpro', $data['Amount'], 0, NULL, $comment);
+    if(!$try) {
+      watchdog('payflow_cron', 'Sync error while updating @profile_id',
+        array('@profile_id' => $profile->getProfileID()),
+        WATCHDOG_ERROR
+      );
     }
-    
-    // Always update the next payment date
-    //die("Stopping processing");
+
+    // There could potentially be a whole lot of rows to process, so clean up memory.
+    unset ($order, $shell_order, $data, $profile, $row);
   }
-  return;
 }
 
 /*******************************************************************************
@@ -1365,12 +1354,12 @@ function _uc_payflowpro_recurring_process_recurring() {
  ******************************************************************************/
 // Terms
 function _uc_payflowpro_recurring_periods($lu = '') {
-  return _uc_pfp_period_map();
+  return _uc_display_period_map();
 }
 
 // check for required modules
 function _uc_payflowpro_check_requirements() {
-  $success = true;
+  $success = TRUE;
 
   if (!function_exists('curl_init')) {
     drupal_set_message(t('The PayFlow Pro service requires cURL. Please talk to your system administrator to get this configured.'));
@@ -1385,78 +1374,12 @@ function _uc_payflowpro_check_requirements() {
   return $success;
 }
 
-/**
- * @abstract Initializes the files needed to work
- *
- * @return void
- */
-function _uc_payflowpro_include_init() {
-  static $loaded;
-  if($loaded === true) {
-    return;
-  }
-  
-  // Look in the includes folder for files
-  // that we MUST include. These will have
-  // the extension .inc.
-  $dir_path = drupal_get_path('module', 'uc_payflowpro') . '/includes';
-  _uc_payflowpro_include_files($dir_path);
-  
-  $loaded = true;
-  return;
-}
-
-function _uc_payflowpro_include_files($dir, $absolute = false) {
-  $osinfo = _uc_payflowpro_detect_os();
-  $sep = $osinfo['path_sep'];
-  
-  // Handles .svn and other misc files that we don't want to load
-  if(strpos(basename($dir),'.') === 0) {
-    return;
-  }
-  
-  if(!$absolute) {
-    $cwd = getcwd();
-    $dir_path = $cwd . '/' . $dir;
-    $dir_path = str_replace('/', $sep, $dir_path);
-  }
-  else {
-    $dir_path = str_replace('/', $sep, $dir);
-  }
-
-  $files = @scandir($dir_path);
-  if(!$files) {
-    return;
-  }
-  $ext = array('module', 'inc', 'php', 'class');
-  foreach($files as $k => $filename) {
-    
-    $current_path = ($absolute) ? "$dir_path/$filename" : "$cwd/$dir/$filename";
-    $current_path = str_replace('/', $sep, $current_path);
-    $path_parts = pathinfo("$current_path");
-
-    $extension = $path_parts['extension'];
-    if($filename != '.' && $filename != '..' ) {
-      if( !is_dir($current_path) ) {
-        if( in_array($extension, $ext) ) {
-          include_once($current_path);
-        }
-      }
-      else {
-        _uc_payflowpro_include_files($current_path, true);
-      }
-    }
-    
-  }
-  return;
-}
-
 function _uc_payflowpro_detect_os() {
   static $ostype;
   if($ostype != '') {
     return $ostype;
   }
-  
+
   $winos = eregi("windows", strtolower(php_uname()));
   if($winos) {
     $ostype['type'] = UC_PFP_OSTYPE_WINDOWS;
@@ -1485,16 +1408,16 @@ function _autopilot_sanitize_path($path) {
 function uc_payflowpro_debug() {
   $form_values = $_POST;
   $page = '';
-  
+
   // Process
-  if($form_state['values']['op'] == t('Send')) {
+  if($form_values['op'] == t('Send')) {
     drupal_set_message(t('Transaction sent...'));
     $response = _uc_payflowpro_submit_xml($form_values['xml_code'], $form_values['mode']);
+    $page .= '<h3>Result: (also check for log entries)</h3><pre>' . var_export($response, TRUE) . '</pre><hr/>';
   }
 
   $page .= drupal_get_form('uc_payflowpro_debug_form', $form_values);
-  
-  $page .= '<pre>' . print_r($response,1) . '</pre>'; 
+
   return $page;
 }
 
@@ -1518,7 +1441,7 @@ function uc_payflowpro_debug_form($form_values = array()) {
     '#options' => array('test' => 'Test', 'live' => 'Live'),
     '#default_value' => $form_values['mode'],
   );
-  
+
   return $form;
 }
 
@@ -1560,7 +1483,7 @@ function uc_payflowpro_debug_form($form_values = array()) {
             [@attributes] => Array
                 (
                     [Name] => VISACARDLEVEL
-                    [Value] => A 
+                    [Value] => A
                 )
 
         )
@@ -1613,7 +1536,7 @@ function uc_payflowpro_debug_form($form_values = array()) {
             [@attributes] => Array
                 (
                     [Name] => VISACARDLEVEL
-                    [Value] => A 
+                    [Value] => A
                 )
 
         )
