@@ -1,10 +1,16 @@
 // $Id$
 
+TODO: document the upgrade process.  New permissions, etc.???
+
 Ubercart Payflow Pro Payment Gateway README
 
 Open an issue at http://drupal.org/project/uc_payflowpro for support.
 
-Code contributions from kwinters, mlutfy, and bountyx@gmail.com plus the original D5 version.
+D6 code contributions from kwinters, mlutfy, bountyx@gmail.com.
+Later D6 contributions attributed in CHANGELOG.txt. 
+D5 credits:
+  Developed by David Strauss (http://fourkitchens.com/ | david@fourkitchens.com)
+  and Marshal Newrock (https://idealso.com/ | marshal@idealso.com)
 
 To install, place the uc_payflowpro in your modules folder. It will also work inside of the ubercart 
 folder, but if you have to blow out your ubercart folder then keeping uc_payflowpro separate could 

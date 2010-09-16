@@ -1,5 +1,10 @@
 // $Id$
 
+UC Payflow Pro 6.x-2.0, XXXX-XX-XX
+------------------------------
+#525222 by kwinters, beifler: Integrate with uc_recurring
+#796962 by kwinters, beifler: Allow customers to update own credit card info for recurring fees
+
 UC Payflow Pro 6.x-1.3, 2010-06-03
 ------------------------------
 #810700 by aaron1234nz: Postgres compatibility

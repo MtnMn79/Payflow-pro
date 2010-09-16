@@ -1,0 +1,8 @@
+; $Id$
+name = PayFlow Pro Recurring
+description = Allows use of uc_recurring with uc_payflowpro.
+dependencies[] = uc_payflowpro
+dependencies[] = uc_recurring
+package = Ubercart - payment
+core = 6.x
+php = 5.0

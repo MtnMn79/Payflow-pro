@@ -1,0 +1,546 @@
+<?php
+// $Id$
+
+// Must always include files that contain hooks.  TODO: Utilize dynamic loading and module_load_include
+require_once('PayflowProRecurring.class.php');
+require_once('uc_payflowpro_recurring.inc');
+
+/**
+* Implementation of hook_recurring_info().
+*/
+function uc_payflowpro_recurring_recurring_info() {
+  $items['payflowpro'] = array(
+    'name' => t('PayFlow Pro'),
+    'payment method' => 'credit',
+    'module' => 'uc_payflowpro_recurring',
+    'fee handler' => 'payflowpro',
+    'renew callback' => 'uc_payflowpro_recurring_recurring_renew',
+    'process callback' => 'uc_payflowpro_recurring_recurring_process',
+    'cancel callback' => 'uc_payflowpro_recurring_recurring_cancel',
+    'menu' => array(
+      'update' => array(
+        'title' => 'Update Account Details',
+        'page arguments' => array('uc_payflowpro_recurring_recurring_user_update_form'),
+      ),
+      'cancel' => UC_RECURRING_MENU_DEFAULT,
+    ),
+		'own handler' => TRUE,
+  );
+  return $items;
+}
+
+function uc_payflowpro_recurring_form_uc_payment_gateways_form_alter(&$form, $form_state) {
+  $fields = array(
+    '#type' => 'fieldset',
+    '#title' => t('Recurring Settings'),
+    '#description' => t('Settings specific to recurring profiles.'),
+    '#collapsible' => TRUE,
+    '#collapsied' => TRUE,
+  );
+  // TODO: remove this option? also change in uninstall / update hooks
+  $fields['uc_payflowpro_recurring_create_order'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Successful recurring payments should create a duplicate order'),
+    '#default_value' => variable_get('uc_payflowpro_recurring_create_order', FALSE),
+    '#description' => t('If this box is unchecked, the original order will be updated instead.'),
+  );
+  $fields['uc_payflowpro_recurring_site_key'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Site key'),
+    '#description' => t('The site key is used to namespace your site from other
+                        sites. This should be short, all letters or numbers or both,
+                        e.g. mysite, or prodsite, etc.'),
+    '#default_value' => variable_get('uc_payflowpro_recurring_site_key', ''),
+  );
+
+  $form['gateways']['payflowpro']['payflowpro_settings']['recurring'] = $fields;
+}
+
+function uc_payflowpro_recurring_form_uc_recurring_payment_form_alter(&$form, $form_state) {
+  // TODO: set Enable triggered renewals to false and unchangable???
+  // TODO: make sure that failed payments are handled nicely.  If admin/store/settings/payment/edit/recurring extensions don't apply, alter form???
+}
+
+function uc_payflowpro_recurring_form_uc_recurring_feature_form_alter(&$form, $form_state) {
+  // The PFP gateway does not support daily recurring.
+  unset(
+    $form['interval']['initial']['initial_charge_unit']['#options']['days'],
+    $form['interval']['regular']['regular_interval_unit']['#options']['days']
+  );
+}
+
+function uc_payflowpro_recurring_form_alter(&$form, $form_state, $form_id) {
+  //dsm($form_id);return; // TODO: delete this debug func
+}
+
+/**
+ * Implemenation of hook_recurring_renew()
+ */
+function uc_payflowpro_recurring_recurring_renew($order, $fee) {
+  var_dump('uc_payflowpro_recurring_recurring_renew',$order, $fee);die();
+
+
+
+
+  /*$server = variable_get('uc_payflowpro_recurring_txn_mode', 'test');
+
+  // Help build the request.
+  $request = array(
+    'Periodic' => array(
+      'PeriodicList count="1"' => array(
+        'PeriodicItem ID="1"' => array(
+          'actionType' => 'trigger',
+          'clientID' => $fee->data['subscription_id'], // TODO: need to check this is correct
+          'amount' => $fee->fee_amount*100,
+        ),
+      ),
+    ),
+  );
+
+  // Request a profile from auth.net.
+  $xml = _uc_payflowpro_recurring_xml_api_wrapper('Periodic', _uc_payflowpro_recurring_array_to_xml($request));
+
+  // Parse the response.
+  $response = _uc_payflowpro_recurring_parse_response(uc_payflowpro_recurring_xml_api($server, 'periodic', $order->order_id, $xml));
+
+  // TODO: verify payment completed here
+
+  // Error state.
+  if ($response['responseCode'] != '00' && $response['responseCode'] != '08' && $response['responseCode'] != '77') {
+    $result = array(
+      'success' => FALSE,
+      'message' => t('Credit card payment declined: @message [@code]',
+                      array('@message' => $response['responseText'],
+                            '@code' => $response['responseCode'])),
+      'uid' => $user->uid,
+    );
+
+    return FALSE;
+  }
+  // Transaction succeeded.
+  else {
+    // Build a message for display and comments in the payments table.
+    $message = t('!amount recurring fee collected for @model. (ID: <a href="!url">!fee</a>)',
+                  array('!url' => url('admin/store/orders/recurring/view/fee/'. $fee->rfid),
+                        '!fee' => $fee->rfid,
+                        '!amount' => uc_currency_format($fee->fee_amount),
+                        '@model' => $fee->data['subscription_id']));
+    $result = array(
+      'success' => TRUE,
+      'comment' => $message,
+      'message' => $message,
+      'data' => array('module' => 'uc_securepayau',
+                      'txn_type' => $response['RequestType'],
+                      'action' => $response['actionType'],
+                      'subscription_id' => $response['clientID']),
+      'uid' => $user->uid,
+    );
+
+    // enter the payment.
+    uc_payment_enter($order->order_id, 'credit', $response['amount']/100, 0, $result['data'], $message);
+
+    uc_order_comment_save($order->order_id, 0, $message);
+
+  }
+
+  // Build an admin order comment.
+  $comment = t('<b>@type</b><br /><b>@status:</b> @message<br />Amount: @amount<br />Credit Card: @cc<br/>Expiry Date: @expiry<br/>Card Type: @cardtype',
+    array('@type' => $response['RequestType'] .' '. $response['actionType'] .' '. $response['clientID'],
+          '@status' => $result['success'] ? t('ACCEPTED') : t('REJECTED'),
+          '@message' => $response['responseText'],
+          '@amount' => uc_currency_format($response['amount']/100),
+          '@cc' => $response['pan'],
+          '@expiry' => $response['expiryDate'],
+          '@cardtype' => $response['cardDescription'],
+         ));
+
+  // Save the comment to the order.
+  uc_order_comment_save($order->order_id, $user->uid, $comment, 'admin');
+
+  return TRUE;*/
+}
+
+function uc_payflowpro_recurring_recurring_process($order, &$fee) {
+  // This is just to work around a bug in uc_recurring, where it ignores the setting in recurring_info() for some reason.
+	$fee->own_handler = TRUE;
+
+  $cuser = user_load(array('uid' => $order->uid));
+  // User name is empty for anon checkout, so make one up the same way as uc_cart_complete_sale.
+  if ($cuser->uid < 1) {
+    $cuser->name = uc_store_email_to_username($order->primary_email);
+  }
+  $payment = $order->payment_details;
+  $site_key = variable_get('uc_payflowpro_recurring_site_key', 'drupal_uc');
+  $nid = intval($fee->data['nid']);
+
+  $profile = new PayflowProRecurring();
+  $profile->setAuth(_uc_payflowpro_get_auth());
+
+  // Call the create new function to set the object up to create a new profile.
+  $profile->createNew();
+  $profile->setName($site_key . '_' . $cuser->name);
+  $profile->setCompanyName( (($order->billing_company) ? $order->billing_company : $order->delivery_company));
+  $profile->setBillTo(_uc_payflowpro_format_address($order, 'billto'));
+  $profile->setShipTo(_uc_payflowpro_format_address($order, 'shipto'));
+  $profile->setEmail($order->primary_email);
+
+  // Tender
+  $tender['Type'] = 'C';
+  $tender['CardNum'] = $payment['cc_number'];
+  $tender['NameOnCard'] = $payment['cc_owner'];
+  $tender['ExpDate'] = $payment['cc_exp_year'] . sprintf('%02d', $payment['cc_exp_month']);
+  $tender['CVNum'] = $payment['cc_cvv'];
+  $profile->setTender($tender);
+
+  // Recurring fee options
+  $profile->setAmt($fee->fee_amount);
+  $profile->setStartDate(date('mdY', $fee->next_charge));
+  $profile->setTerm($fee->remaining_intervals); // Number of intervals can come from the user
+  // Period can NOT come from the user, limited set of accepted values and could be used to cheat.
+  $profile->setPayPeriod(_uc_to_pfp_format_period($fee->regular_interval));
+
+  $result = $profile->save();
+  $result = $result->RecurringProfileResult;
+
+  // Place the profile result into our database
+  if($result->Message == 'Approved') {
+    $return = TRUE;
+    // We need to save the rfid so we can reference it (not saved to DB yet).
+    if (!$fee->rfid) {
+      $fee->rfid = uc_recurring_fee_user_save($fee);
+    }
+    $message = t('Recurring payment processed successfully with profile ID !profile_id.', array(
+      '!profile_id' => $result->ProfileID,
+    ));
+    // Tie the uc_recurring row to the extended payflow profile info needed for later actions.
+    db_query("INSERT INTO {uc_payflowpro_recurring}
+                 (rfid, profile_id, rpref)
+                 VALUES(%d, '%s', '%s');",
+                 $fee->rfid, $result->ProfileID, $result->RPRef);
+  } else {
+    $return = FALSE;
+    $message = t('Recurring payment declined for !amount with error code !return_code (!message).', array(
+      '!amount' => uc_currency_format($fee->fee_amount),
+      '!return_code' => $result->Result,
+      '!message' => $result->Message,
+    ));
+  }
+
+  // Add an admin note to the order reflecting the result of the recurring profile save attempt.
+  uc_order_comment_save($order->order_id, $order->uid, $message, 'admin');
+
+  return $return;
+}
+
+function uc_payflowpro_recurring_recurring_update($order, $fee) {
+  global $user;
+
+  // Load up the profile
+  $pid = uc_payflowpro_recurring_get_profile_id($fee);
+  $profile = new PayflowProRecurring($pid, _uc_payflowpro_get_auth());
+  $profile->refresh();
+
+  // Set up the items to modify (currently only CC info supported).
+  $profile->clearUpdate(); // Make sure nothing else gets changed.
+  $payment = $order->payment_details;
+  $tender['Type'] = 'C';
+  $tender['CardNum'] = $payment['cc_number'];
+  $tender['NameOnCard'] = $payment['cc_owner'];
+  $tender['ExpDate'] = $payment['cc_exp_year'] . sprintf('%02d', $payment['cc_exp_month']);
+  $tender['CVNum'] = $payment['cc_cvv'];
+  $profile->setTender($tender);
+
+  $try = $profile->update();
+  if(!$try && $profile->getReturnCode() != '33') {
+    $message = $profile->getReturnMsg();
+    drupal_set_message(t('Unable to update your subscription at this time.'), 'error');
+    drupal_set_message(t('Error: @error_msg', array('@error_msg' => $message)));
+    if (!empty($fee->order_id)) {
+      uc_order_comment_save($fee->order_id, $user->uid,
+        t('payflow: Recurring profile @pid update error .',
+           array('@pid' => $pid, '@error_msg' => $message)
+         ), 'admin');
+    }
+    return FALSE;
+  }
+
+  if (!empty($fee->order_id)) {
+    uc_order_comment_save($fee->order_id, $user->uid,
+      t('payflow: Recurring profile @pid updated.',
+         array('@pid' => $pid)
+       ), 'admin');
+  }
+  return TRUE;
+}
+
+function uc_payflowpro_recurring_recurring_cancel($fee) {
+  global $user;
+
+  // Load up the profile
+  $pid = uc_payflowpro_recurring_get_profile_id($fee);
+  $profile = new PayflowProRecurring($pid, _uc_payflowpro_get_auth());
+  $profile->refresh();
+
+  $try = $profile->cancel();
+  if(!$try && $profile->getReturnCode() != '33') {
+    $message = $profile->getReturnMsg();
+    drupal_set_message(t('Unable to cancel your subscription at this time.'), 'error');
+    drupal_set_message(t('Error: @error_msg', array('@error_msg' => $message)));
+    if (!empty($fee->order_id)) {
+      uc_order_comment_save($fee->order_id, $user->uid,
+        t('payflow: Recurring profile @pid cancel error .',
+           array('@pid' => $pid, '@error_msg' => $message)
+         ), 'admin');
+    }
+    return FALSE;
+  }
+
+  if (!empty($fee->order_id)) {
+    uc_order_comment_save($fee->order_id, $user->uid,
+      t('payflow: Recurring profile @pid cancelled.',
+         array('@pid' => $pid)
+       ), 'admin');
+  }
+  return TRUE;
+}
+
+function uc_payflowpro_recurring_get_profile_id($fee) {
+  return db_result(db_query('SELECT profile_id FROM {uc_payflowpro_recurring} WHERE rfid=%d', $fee->rfid));
+}
+
+/**
+ * Check if the current page is SSL
+ */
+function uc_payflowpro_recurring_ssl_warning() {
+  if (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] == 'on') {
+    return;
+  }
+  if (isset($_SERVER['HTTP_SSL_CIPHER']) && !empty($_SERVER['HTTP_SSL_CIPHER'])) {
+    return;
+  }
+
+  drupal_set_message(t('Credit card information should only be sent through the https version of the site.  If you are unsure, please contact a site admin.'), 'warning');
+}
+
+function uc_payflowpro_recurring_recurring_user_update_form($form_state, $rfid) {
+  global $user;
+  uc_payflowpro_recurring_ssl_warning(); // This form contains CC info, only send thru SSL.
+
+  $form['rfid'] = array(
+    '#type' => 'value',
+    '#value' => $rfid,
+  );
+  $form['helptext'] = array(
+  	'#value' => t('Complete the form below to update your credit card info.'),
+  );
+  $form['cc_data'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Credit card details'),
+    '#theme' => 'uc_payment_method_credit_form',
+    '#tree' => TRUE,
+  );
+  $form['cc_data'] += uc_payment_method_credit_form(array(), $order);
+  unset($form['cc_data']['cc_policy']);
+
+  // All the fields must be filled in for the CC update to work.
+  foreach($form['cc_data'] as $key => $item) {
+    if (is_array($form['cc_data'][$key]) && !empty($form['cc_data'][$key])) {
+      $form['cc_data'][$key]['#required'] = TRUE;
+    }
+  }
+
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Update'),
+    '#suffix' => l(t('Cancel'), 'user/'. intval($user->uid) . '/recurring-fees'),
+  );
+
+  return $form;
+}
+
+function uc_payflowpro_recurring_recurring_user_update_form_submit($form, &$form_state) {
+  global $user;
+  $fee = uc_recurring_fee_user_load($form_state['values']['rfid']);
+  $order = uc_order_load($fee->order_id);
+  $order->payment_details = $form_state['values']['cc_data'];
+
+  $result = uc_payflowpro_recurring_recurring_update($order, $fee);
+
+  // If the update was successful...
+  if ($result) {
+    drupal_set_message(t('The payment details for that recurring fee have been updated.'));
+  }
+  else {
+    drupal_set_message(t('An error has occurred while updating your payment details. Please try again and contact us if you are unable to perform the update.'), 'error');
+  }
+
+  $form_state['redirect'] = 'user/'. intval($user->uid) . '/recurring-fees';
+}
+
+// Generate XML for Recurring profiles
+/*function _uc_payflowpro_recurring_profile($order, $opt = array()) {
+  // TODO: make sure this is used and move to submodule
+  print "_uc_payflowpro_recurring_profile";die();
+  $billing_country = uc_get_country_data(array('country_id' => $order->billing_country));
+  if ($billing_country === FALSE) {
+    $billing_country = array(0 => array('country_iso_code_2' => 'US'));
+  }
+
+  $delivery_country = uc_get_country_data(array('country_id' => $order->delivery_country));
+  if ($delivery_country === FALSE) {
+    $delivery_country = array(0 => array('country_iso_code_2' => 'US'));
+  }
+
+  $shipping = 0;
+  foreach ($order->line_items as $line_item) {
+    if ($line_item['type'] == 'shipping') {
+      $shipping += $line_item['amount'];
+    }
+  }
+
+  $tax = 0;
+  if (module_exists('uc_taxes')) {
+    foreach (uc_taxes_calculate($order) as $tax_item) {
+      $tax += $tax_item->amount;
+    }
+  }
+
+  $xml = '            <Invoice>
+              <InvNum>' . intval($order->order_id) . '</InvNum>
+              <BillTo>
+                <Name>' . trim(check_plain($order->billing_first_name . ' ' . $order->billing_last_name)) . '</Name>
+                <Phone>' . check_plain($order->billing_phone) . '</Phone>
+                <EMail>' . check_plain($order->primary_email) . '</EMail>
+                <CustCode>' . check_plain($order->uid) . '</CustCode>
+                <Address>
+                  <Street>' .trim(check_plain($order->billing_street1 . ' ' . $order->billing_street2)) . '</Street>
+                  <City>' . check_plain($order->billing_city) . '</City>
+                  <State>' . check_plain(uc_get_zone_code($order->billing_zone)) . '</State>
+                  <Zip>' . check_plain($order->billing_postal_code) . '</Zip>
+                  <Country>' . check_plain($billing_country[0]['country_iso_code_2']) . '</Country>
+                </Address>
+              </BillTo>
+              <ShipTo>
+                <Name>' . check_plain($order->delivery_first_name . ' ' . $order->delivery_last_name) . '</Name>
+                <Phone>' . check_plain($order->delivery_phone) . '</Phone>
+                <EMail>' . check_plain($order->primary_email) . '</EMail>
+                <Address>
+                  <Street>' .trim(check_plain($order->delivery_street1 . ' ' . $order->delivery_street2)) . '</Street>
+                  <City>' . check_plain($order->delivery_city) . '</City>
+                  <State>' . check_plain(uc_get_zone_code($order->delivery_zone)) . '</State>
+                  <Zip>' . check_plain($order->delivery_postal_code) . '</Zip>
+                  <Country>' . check_plain($delivery_country[0]['country_iso_code_2']) . '</Country>
+                </Address>
+              </ShipTo>
+' . _uc_payflowpro_items_xml($order) . '
+              <ShippingAmt>' . uc_currency_format($shipping, FALSE, FALSE, '.') . '</ShippingAmt>
+              <TaxAmt>' . uc_currency_format($tax, FALSE, FALSE, '.') . '</TaxAmt>
+              <TotalAmt>' . uc_currency_format($order->order_total, FALSE, FALSE, '.') . '</TotalAmt>
+            </Invoice>';
+
+  return $xml;
+}
+
+/**
+ * Implementation of hook_cron
+ */
+function uc_payflowpro_cron() {
+  // Sync every profile once per day.
+  // If the profile is canceled via manager.paypal.com it needs to be updated here.
+  $rs = db_query("SELECT * FROM {uc_recurring_users} AS uru " .
+  	"INNER JOIN {uc_payflowpro_recurring} AS upr ON uru.rfid = upr.rfid " .
+  	"WHERE last_status_check < %d", time() - 86400);
+  while($row = db_fetch_object($rs)) {
+    $profile = new PayflowProRecurring($row->profile_id, _uc_payflowpro_get_auth());
+    $profile->refresh();
+    var_dump($row,$profile);continue; // TODO: remove debug
+
+    if($profile->getStatus() == 'ACTIVE') {
+      // If a payment occurred, the pnref needs to be updated in the database.
+      $payment = $profile->getLastPayment();
+      $newPNRef = $row->pfp_rpref;
+      if (!empty($payment['PNRef']) && $payment['Result'] === "0" ) {
+        $newPNRef = $payment['PNRef'];
+      }
+
+      // @see #770000: For debugging any unsuccessful recurring charges.
+      if (!empty($payment)) {
+        watchdog('payflow_cron', 'Last payment for @profile_id had ref code @PNRef, result @result, and last payment status @status',
+          array('@profile_id' => $profile->getProfileID(), '@PNRef' => $payment['PNRef'], '@result' => $payment['Result'], '@status' => $profile->getLastPaymentStatus()),
+          WATCHDOG_DEBUG
+        );
+      }
+
+      $try = db_query("UPDATE {uc_payflowpro_recurring_profiles}
+               SET profile_status = '%s', next_payment_date = %d, last_status_check = %d, payment_status = '%s', pfp_rpref = '%s'
+               WHERE pfp_pid = %d",
+               $profile->getStatus(), $profile->getNextPaymentDate('unix'), time(), $profile->getLastPaymentStatus(), $newPNRef, $row->pfp_pid);
+
+      // If a payment was made and it was successful, need to do some order processing.
+      if($profile->getLastPaymentStatus() === 0 && $newPNRef != $row->pfp_rpref) {
+        // Prepare data for order comment or new order.
+        $order = uc_order_load($row->order_id);
+        $comment = "Logging recurring payment from Payflow Pro for profile " . $profile->getProfileID();
+        $data = array();
+        $last_payment = $profile->getLastPayment();
+        unset($last_payment['Amt']);
+        $data = $last_payment;
+        $data['pnref'] = $last_payment['PNREF'];
+        $data['payment_num'] = $last_payment['PaymentNum'];
+
+        // If box was checked, create a new order for this payment.
+        // This is not the recommended way to handle it, since it will create
+        // a lot of duplicate orders.  However, this might be best for some
+        // sites, particularly if they rely on an order state change.
+        if( variable_get('uc_payflowpro_recurring_create_order', 0) ) {
+          // Save a new blank order, to reserve an ID
+          $shell_order = uc_order_new($row->uid);
+          // Use the new, reserved ID with the old data
+          $order->order_id = $shell_order->order_id;
+          // Seve the full data to the new ID
+          uc_order_save($order);
+        }
+
+        // Add a payment to the order
+        uc_payment_enter($order->order_id, 'payflowpro', $data['Amount'], 0, NULL, $comment);
+
+        watchdog('payflow_cron', 'Recorded payment for profile @profile_id: order @order_id, next payment @next_payment_date, status @status', array(
+          '@profile_id' => $profile->getProfileID(),
+          '@order_id' => ((!empty($order->order_id)) ? $order->order_id : $row->order_id),
+          '@next_payment_date' => $profile->getNextPaymentDate('M.d.Y'),
+          '@status' => $profile->getLastPaymentStatus(),
+        ));
+
+        // For now, integration with uc_roles is direct.  After integration
+        // with uc_recurring is done, this should no longer be needed because
+        // uc_recurring will already take care of it. @see #525222
+        if (is_callable('uc_roles_action_order_renew')) {
+          uc_roles_action_order_renew($order, array());
+        }
+      }
+    }
+    else {
+      $try = db_query("UPDATE {uc_payflowpro_recurring_profiles}
+               SET profile_status = '%s', next_payment_date = %d, last_status_check = %d
+               WHERE pfp_pid = %d", $profile->getStatus(),
+               0, time(), $row->pfp_pid);
+    }
+
+    if(!$try) {
+      watchdog('payflow_cron', 'Sync error while updating @profile_id',
+        array('@profile_id' => $profile->getProfileID()),
+        WATCHDOG_ERROR
+      );
+    }
+
+    // There could potentially be a whole lot of rows to process, so clean up memory.
+    unset ($order, $shell_order, $data, $profile, $row);
+  }
+}
+
+// Terms
+/*
+function _uc_payflowpro_recurring_periods($lu = '') {
+  // TODO: used?
+  return _uc_display_period_map();
+}*/
