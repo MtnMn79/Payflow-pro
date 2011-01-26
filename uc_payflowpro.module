@@ -228,15 +228,15 @@ function uc_payflowpro_charge($order_id, $amount, $data) {
   $check_result_code = (int)$txn_result_code;
   $approved_results = _uc_payflowpro_get_approved_results();
   if (!in_array($check_result_code, $approved_results)) {
-    $message = t('Credit card declined for !amount with error code !return_code.', array('!amount' => uc_currency_format($amount), '!return_code' => $txn_result_code));
+    $message = t('Credit card declined for @amount with error code @return_code.', array('@amount' => uc_currency_format($amount), '@return_code' => $txn_result_code));
     $data = array();
-    $data['pnref'] = (string)$response->PNRef;
-    $data['authcode'] = (string)$response->AuthCode;
-    $data['result'] = (string)$response->Result;
+    $data['pnref'] = check_plain((string)$response->PNRef);
+    $data['authcode'] = check_plain((string)$response->AuthCode);
+    $data['result'] = check_plain((string)$response->Result);
     $result = array(
       'success' => FALSE,
-      'comment' => t('Credit card payment declined: !text', array('!text' => $txn_message)),
-      'message' => t('Credit card payment declined: !text', array('!text' => $txn_message)),
+      'comment' => t('Credit card payment declined: @text', array('@text' => $txn_message)),
+      'message' => t('Credit card payment declined: @text', array('@text' => $txn_message)),
       'uid' => $user->uid,
       'data' => $data,
     );
@@ -244,21 +244,21 @@ function uc_payflowpro_charge($order_id, $amount, $data) {
   else {
     $x_approval_code = $response->AuthCode;
     $pnref = $response->PNRef;
-    $message = t('Credit card payment processed successfully with approval code !code and pnref !pnref.', array('!code' => $x_approval_code, '!pnref' => $pnref));
+    $message = t('Credit card payment processed successfully with approval code @code and pnref @pnref.', array('@code' => $x_approval_code, '@pnref' => $pnref));
     $data = array();
-    $data['pnref'] = (string)$response->PNRef;
-    $data['authcode'] = (string)$response->AuthCode;
-    $data['result'] = (string)$response->Result;
+    $data['pnref'] = check_plain((string)$response->PNRef);
+    $data['authcode'] = check_plain((string)$response->AuthCode);
+    $data['result'] = check_plain((string)$response->Result);
     $result = array(
       'success' => TRUE,
-      'comment' => t('Credit card payment processed successfully with approval code !code and pnref !pnref.', array('!code' => $x_approval_code, '!pnref' => $pnref)),
-      'message' => t('Credit card payment processed successfully with approval code !code and pnref !pnref.', array('!code' => $x_approval_code, '!pnref' => $pnref)),
+      'comment' => t('Credit card payment processed successfully with approval code @code and pnref @pnref.', array('@code' => $x_approval_code, '@pnref' => $pnref)),
+      'message' => t('Credit card payment processed successfully with approval code @code and pnref @pnref.', array('@code' => $x_approval_code, '@pnref' => $pnref)),
       'uid' => $user->uid,
       'data' => $data,
     );
   }
   if($check_result_code != 0) {
-    watchdog('uc_payflowpro', t('Error !return_code: !message for !amount.', array('!message' => (string)$response->Message, '!return_code' => $txn_result_code, '!amount' => uc_currency_format($amount) )));
+    watchdog('uc_payflowpro', t('Error @return_code: @message for @amount.', array('@message' => (string)$response->Message, '@return_code' => $txn_result_code, '@amount' => uc_currency_format($amount) )));
   }
   uc_order_comment_save($order_id, $user->uid, $message, 'admin');
   if($result['success'] == true) {
@@ -1479,10 +1479,10 @@ function _uc_payflowpro_cron_payment_entry($order_id, $method, $amount, $uid, $d
 
   if (variable_get('uc_payment_logging', TRUE)) {
     global $user;
-    $log_message = t('!method payment for !amount entered by !user.',
-                     array('!method' => $method_name,
-                           '!amount' => uc_currency_format($amount),
-                           '!user' => uc_get_initials($user->uid)));
+    $log_message = t('@method payment for @amount entered by @user.',
+                     array('@method' => $method_name,
+                           '@amount' => uc_currency_format($amount),
+                           '@user' => uc_get_initials($user->uid)));
     uc_order_log_changes($order_id, array($log_message));
   }
 
