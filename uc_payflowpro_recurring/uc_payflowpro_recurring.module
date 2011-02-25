@@ -1,5 +1,4 @@
 <?php
-// $Id$
 
 // Must always include files that contain hooks.  TODO: Utilize dynamic loading and module_load_include
 require_once('PayflowProRecurring.class.php');

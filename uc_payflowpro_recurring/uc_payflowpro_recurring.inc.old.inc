@@ -1,7 +1,6 @@
 <?php
 //TODO: Delete this before commit.  Delete functions individually as they are ported.
 
-// $Id$
 
 /***********************************
  *

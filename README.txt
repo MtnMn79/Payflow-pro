@@ -1,4 +1,3 @@
-// $Id$
 
 TODO: document the upgrade process.  New permissions, etc.???
 

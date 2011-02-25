@@ -1,4 +1,3 @@
-; $Id$
 name = PayFlow Pro Recurring
 description = Allows use of uc_recurring with uc_payflowpro.
 dependencies[] = uc_payflowpro
