@@ -324,7 +324,7 @@ function uc_payflowpro_checkout_pane() {
   $panes[] = array(
     'id' => 'pfp_recurring_co_pane',
     'callback' => 'uc_payflowpro_recurring_checkout_pane_cart',
-    'title' => t('Renewal Information'),
+    'title' => t('Renewal Information (required for renewal to function)'),
     'desc' => t('Details and options for renewable products (required if renewal is to be used).'),
     'weight' => 2,
     'process' => true,
